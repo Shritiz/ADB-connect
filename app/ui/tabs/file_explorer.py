@@ -17,6 +17,7 @@ class FileExplorerTab(BaseTab):
         super().__init__(parent)
         self.adb = ADBManager()
         self.current_device_path = "/sdcard"
+        self.selected_devices = None
         self.init_ui()
 
     def init_ui(self):
@@ -48,7 +49,7 @@ class FileExplorerTab(BaseTab):
         # Path bar
         path_layout = QHBoxLayout()
         self.device_path_label = QLineEdit(self.current_device_path)
-        self.device_path_label.setReadOnly(True)
+        self.device_path_label.returnPressed.connect(self.on_path_enter)
         path_layout.addWidget(self.device_path_label)
         self.refresh_btn = QPushButton("Refresh")
         self.refresh_btn.clicked.connect(self.refresh_device_files)
@@ -57,6 +58,7 @@ class FileExplorerTab(BaseTab):
 
         # File list
         self.device_file_list = QListWidget()
+        self.device_file_list.itemDoubleClicked.connect(self.on_file_double_clicked)
         right_layout.addWidget(self.device_file_list)
 
         # Control buttons
@@ -82,8 +84,6 @@ class FileExplorerTab(BaseTab):
 
         layout.addLayout(right_layout, 1)
 
-        self.refresh_device_files()
-
     def update_devices(self, devices):
         """Update when selected devices change."""
         self.selected_devices = devices
@@ -103,45 +103,61 @@ class FileExplorerTab(BaseTab):
 
         device = self.selected_devices[0]
         try:
-            # Add timeout to prevent hanging
             self.status_label.setText("Loading...")
             output = self.adb.list_files(device.serial, self.current_device_path)
 
-            if "error" in output.lower() or "permission denied" in output.lower():
-                self.status_label.setText(f"Error: {output[:50]}")
+            if not output or "error" in output.lower() or "permission denied" in output.lower():
+                self.status_label.setText(f"Error: {output[:100] if output else 'No response'}")
                 return
 
             self.device_file_list.clear()
+            file_count = 0
 
-            # Parse ls output
+            # Parse ls -la output
             for line in output.split('\n'):
                 line = line.strip()
                 if not line or line.startswith('total'):
                     continue
 
-                # Extract filename (last column)
                 parts = line.split()
-                if len(parts) >= 9:
-                    filename = ' '.join(parts[8:])
-                    is_dir = line.startswith('d')
+                if len(parts) < 9:
+                    continue
 
-                    item = QListWidgetItem()
-                    if is_dir:
-                        item.setText(f"📁 {filename}")
-                        item.setData(Qt.UserRole, 'dir')
-                    else:
-                        item.setText(f"📄 {filename}")
-                        item.setData(Qt.UserRole, 'file')
-                    item.setData(Qt.UserRole + 1, filename)
+                # ls -la format: perms links owner group size month day time/year filename [-> target]
+                # Extract filename (usually at index 8, but handle symlinks)
+                filename = parts[8]
 
-                    self.device_file_list.addItem(item)
+                # If there's a symlink indicator, extract just the name before ->
+                if '->' in line:
+                    # Split by -> and get the part before it
+                    filename_part = line.split('->')[0].strip()
+                    parts_before_arrow = filename_part.split()
+                    if len(parts_before_arrow) >= 9:
+                        filename = parts_before_arrow[-1]
 
-            # Connect double click to navigate
-            self.device_file_list.itemDoubleClicked.connect(self.on_file_double_clicked)
-            self.status_label.setText(f"Loaded files from {self.current_device_path}")
+                if not filename or filename == '.':
+                    continue
+
+                # Determine if directory
+                is_dir = line.startswith('d')
+
+                item = QListWidgetItem()
+                if is_dir:
+                    item.setText(f"📁 {filename}")
+                    item.setData(Qt.UserRole, 'dir')
+                else:
+                    item.setText(f"📄 {filename}")
+                    item.setData(Qt.UserRole, 'file')
+                item.setData(Qt.UserRole + 1, filename)
+
+                self.device_file_list.addItem(item)
+                file_count += 1
+
+            self.status_label.setText(f"Loaded {file_count} files from {self.current_device_path}")
+            self.device_path_label.setText(self.current_device_path)
 
         except Exception as e:
-            self.status_label.setText(f"Error: {str(e)[:50]}")
+            self.status_label.setText(f"Error: {str(e)[:100]}")
 
     def on_file_double_clicked(self, item):
         """Handle file double-click."""
@@ -149,6 +165,13 @@ class FileExplorerTab(BaseTab):
             filename = item.data(Qt.UserRole + 1)
             self.current_device_path = f"{self.current_device_path.rstrip('/')}/{filename}"
             self.device_path_label.setText(self.current_device_path)
+            self.refresh_device_files()
+
+    def on_path_enter(self):
+        """Handle custom path entry."""
+        new_path = self.device_path_label.text().strip()
+        if new_path and new_path != self.current_device_path:
+            self.current_device_path = new_path
             self.refresh_device_files()
 
     def go_back(self):

@@ -2,7 +2,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QLineEdit, QComboBox, QScrollArea, QSpinBox
 )
-from PySide6.QtCore import Qt, QThread, Signal, QSize
+from PySide6.QtCore import Qt, QThread, Signal, QSize, QByteArray
 from PySide6.QtGui import QPixmap, QImage
 from app.ui.base_tab import BaseTab
 from app.core.adb_manager import ADBManager
@@ -58,12 +58,22 @@ class ScreenshotWidget(QLabel):
     def set_pixmap_from_bytes(self, image_bytes):
         """Set pixmap from screenshot bytes."""
         try:
-            img = Image.open(io.BytesIO(image_bytes))
-            # Convert PIL image to QPixmap
-            img_rgb = img.convert('RGB')
-            data = img_rgb.tobytes("rgb")
-            q_img = QImage(data, img_rgb.width, img_rgb.height, QImage.Format_RGB888)
-            pixmap = QPixmap.fromImage(q_img)
+            # Load image directly with QPixmap (handles various formats)
+            pixmap = QPixmap()
+            if not pixmap.loadFromData(image_bytes):
+                # Fallback: try PIL conversion
+                img = Image.open(io.BytesIO(image_bytes))
+                if img.mode != 'RGB':
+                    img = img.convert('RGB')
+
+                width, height = img.size
+                data = img.tobytes()
+
+                q_byte_array = QByteArray(data)
+                bytes_per_line = width * 3
+                q_img = QImage(q_byte_array, width, height, bytes_per_line, QImage.Format_RGB888)
+                q_img = q_img.copy()
+                pixmap = QPixmap.fromImage(q_img)
 
             # Scale to fit widget while maintaining aspect ratio
             scaled_pixmap = pixmap.scaledToWidth(self.width() - 4, Qt.SmoothTransformation)
@@ -73,7 +83,7 @@ class ScreenshotWidget(QLabel):
             self.scale_x = pixmap.width() / scaled_pixmap.width()
             self.scale_y = pixmap.height() / scaled_pixmap.height()
         except Exception as e:
-            self.setText(f"Error loading image: {e}")
+            self.setText(f"Error loading image: {type(e).__name__}: {e}")
 
 
 class ScreenshotFetcher(QThread):
@@ -125,6 +135,7 @@ class RemoteControlTab(BaseTab):
         super().__init__(parent)
         self.adb = ADBManager()
         self.screenshot_fetcher = None
+        self.selected_devices = None
         self.init_ui()
 
     def init_ui(self):

@@ -215,10 +215,12 @@ class ADBManager:
         try:
             if self.adb:
                 device = self.adb.device(device_serial)
+                # Get screenshot in PPM format
                 return device.shell("screencap -p", encoding=None)
             else:
+                # Use exec-out for direct binary output (PNG format)
                 result = subprocess.run(
-                    ["adb", "-s", device_serial, "exec-out", "screencap", "-p"],
+                    ["adb", "-s", device_serial, "exec-out", "screencap"],
                     capture_output=True,
                     timeout=self.timeout
                 )
@@ -237,7 +239,7 @@ class ADBManager:
 
     def list_files(self, device_serial: str, path: str) -> str:
         """List files on device."""
-        return self.shell(device_serial, f"ls -la {path}")
+        return self.shell(device_serial, f'ls -la "{path}"')
 
     def mkdir(self, device_serial: str, path: str) -> bool:
         """Create directory on device."""

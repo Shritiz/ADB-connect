@@ -10,7 +10,7 @@ def main():
     """Run the application."""
     app = QApplication(sys.argv)
     app.setApplicationName("ADB Control Center")
-    app.setApplicationVersion("0.1.0")
+    app.setApplicationVersion("0.1.1")
 
     window = MainWindow()
     window.show()

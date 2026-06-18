@@ -1,6 +1,7 @@
 from PySide6.QtCore import QThread, Signal
 from app.core.adb_manager import ADBManager
 from app.core.device import Device
+from app.core.device_registry import DeviceRegistry
 import time
 
 
@@ -13,6 +14,7 @@ class DeviceScanner(QThread):
     def __init__(self, interval: int = 3):
         super().__init__()
         self.adb_manager = ADBManager()
+        self.registry = DeviceRegistry()
         self.interval = interval
         self.running = False
 
@@ -24,6 +26,11 @@ class DeviceScanner(QThread):
         while self.running:
             try:
                 devices = self.adb_manager.get_device_list()
+
+                # Save connected devices to registry
+                for device in devices:
+                    if device.is_connected():
+                        self.registry.add_device(device)
 
                 # Only emit if devices changed
                 if devices != last_devices:
